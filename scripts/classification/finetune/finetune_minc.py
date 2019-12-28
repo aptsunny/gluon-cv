@@ -101,6 +101,7 @@ def train(train_path, val_path, test_path):
     finetune_net = get_model(model_name, pretrained=True)
     with finetune_net.name_scope():
         finetune_net.output = nn.Dense(classes)
+
     finetune_net.output.initialize(init.Xavier(), ctx = ctx)
     finetune_net.collect_params().reset_ctx(ctx)
     finetune_net.hybridize()

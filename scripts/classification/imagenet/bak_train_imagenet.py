@@ -3,16 +3,15 @@ import argparse, time, logging, os, math
 import numpy as np
 import mxnet as mx
 import gluoncv as gcv
-from mxnet import gluon, nd
+from mxnet import gluon, nd, init
 from mxnet import autograd as ag
 from mxnet.gluon import nn
 from mxnet.gluon.data.vision import transforms
 
-import gluoncv as gcv
-gcv.utils.check_version('0.6.0')
 from gluoncv.data import imagenet
 from gluoncv.model_zoo import get_model
 from gluoncv.utils import makedirs, LRSequential, LRScheduler
+
 
 # CLI
 def parse_args():
@@ -89,7 +88,7 @@ def parse_args():
                         help='weight for the loss of one-hot label for distillation training')
     parser.add_argument('--batch-norm', action='store_true',
                         help='enable batch normalization or not in vgg. default is false.')
-    parser.add_argument('--save-frequency', type=int, default=10,
+    parser.add_argument('--save-frequency', type=int, default=5,
                         help='frequency of model saving.')
     parser.add_argument('--save-dir', type=str, default='params',
                         help='directory of saved models')
@@ -105,32 +104,34 @@ def parse_args():
                         help='name of training log file')
     parser.add_argument('--use-gn', action='store_true',
                         help='whether to use group norm.')
+
+    parser.add_argument('--classes', type=int, default=0,
+                        help='class.')
+    parser.add_argument('--num_training_samples', type=int, default=0,
+                        help='num_training_samples')
+
     opt = parser.parse_args()
     return opt
 
 
 def main():
     opt = parse_args()
-
     filehandler = logging.FileHandler(opt.logging_file)
     streamhandler = logging.StreamHandler()
-
     logger = logging.getLogger('')
     logger.setLevel(logging.INFO)
     logger.addHandler(filehandler)
     logger.addHandler(streamhandler)
-
     logger.info(opt)
 
-    batch_size = opt.batch_size
-    classes = 1000
-    num_training_samples = 1281167
-
     num_gpus = opt.num_gpus
-    batch_size *= max(1, num_gpus)
     context = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
     num_workers = opt.num_workers
 
+    batch_size = opt.batch_size
+    classes = opt.classes
+    num_training_samples = opt.num_training_samples
+    batch_size *= max(1, num_gpus)
     lr_decay = opt.lr_decay
     lr_decay_period = opt.lr_decay_period
     if opt.lr_decay_period > 0:
@@ -139,7 +140,6 @@ def main():
         lr_decay_epoch = [int(i) for i in opt.lr_decay_epoch.split(',')]
     lr_decay_epoch = [e - opt.warmup_epochs for e in lr_decay_epoch]
     num_batches = num_training_samples // batch_size
-
     lr_scheduler = LRSequential([
         LRScheduler('linear', base_lr=0, target_lr=opt.lr,
                     nepochs=opt.warmup_epochs, iters_per_epoch=num_batches),
@@ -149,10 +149,12 @@ def main():
                     step_epoch=lr_decay_epoch,
                     step_factor=lr_decay, power=2)
     ])
-
     model_name = opt.model
 
-    kwargs = {'ctx': context, 'pretrained': opt.use_pretrained, 'classes': classes}
+    if opt.use_pretrained:
+        kwargs = {'ctx': context, 'pretrained': opt.use_pretrained}
+    else:
+        kwargs = {'ctx': context, 'pretrained': opt.use_pretrained, 'classes': classes}
     if opt.use_gn:
         from gluoncv.nn import GroupNorm
         kwargs['norm_layer'] = GroupNorm
@@ -160,7 +162,6 @@ def main():
         kwargs['batch_norm'] = opt.batch_norm
     elif model_name.startswith('resnext'):
         kwargs['use_se'] = opt.use_se
-
     if opt.last_gamma:
         kwargs['last_gamma'] = True
 
@@ -170,9 +171,23 @@ def main():
         optimizer_params['multi_precision'] = True
 
     net = get_model(model_name, **kwargs)
-    net.cast(opt.dtype)
+    # net.collect_params().initialize(mx.init.Xavier(magnitude=2.24), ctx=context)
+    # add
+    with net.name_scope():
+        if hasattr(net, 'output'):
+            net.output = gluon.nn.Dense(classes)
+            # net.output.initialize(init.Xavier(), ctx=context)
+        else:
+            assert hasattr(net, 'fc')
+            net.fc = gluon.nn.Dense(classes)
+            # net.fc.initialize(init.Xavier(), ctx=context)
+
+    # initialize and context
+    # net.collect_params().reset_ctx(context)
+    # Assign Parameter to given context. If ctx is a list of Context, a  copy will be made for each context.
     if opt.resume_params is not '':
-        net.load_parameters(opt.resume_params, ctx = context)
+        net.load_parameters(opt.resume_params, ctx=context, cast_dtype=True)  # fp16 cast_dtype=False 错在里边
+    net.cast(opt.dtype)
 
     # teacher model for distillation training
     if opt.teacher is not None and opt.hard_weight < 1.0:
@@ -203,45 +218,45 @@ def main():
             return data, label
 
         train_data = mx.io.ImageRecordIter(
-            path_imgrec         = rec_train,
-            path_imgidx         = rec_train_idx,
-            preprocess_threads  = num_workers,
-            shuffle             = True,
-            batch_size          = batch_size,
+            path_imgrec=rec_train,
+            path_imgidx=rec_train_idx,
+            preprocess_threads=num_workers,
+            shuffle=True,
+            batch_size=batch_size,
 
-            data_shape          = (3, input_size, input_size),
-            mean_r              = mean_rgb[0],
-            mean_g              = mean_rgb[1],
-            mean_b              = mean_rgb[2],
-            std_r               = std_rgb[0],
-            std_g               = std_rgb[1],
-            std_b               = std_rgb[2],
-            rand_mirror         = True,
-            random_resized_crop = True,
-            max_aspect_ratio    = 4. / 3.,
-            min_aspect_ratio    = 3. / 4.,
-            max_random_area     = 1,
-            min_random_area     = 0.08,
-            brightness          = jitter_param,
-            saturation          = jitter_param,
-            contrast            = jitter_param,
-            pca_noise           = lighting_param,
+            data_shape=(3, input_size, input_size),
+            mean_r=mean_rgb[0],
+            mean_g=mean_rgb[1],
+            mean_b=mean_rgb[2],
+            std_r=std_rgb[0],
+            std_g=std_rgb[1],
+            std_b=std_rgb[2],
+            rand_mirror=True,
+            random_resized_crop=True,
+            max_aspect_ratio=4. / 3.,
+            min_aspect_ratio=3. / 4.,
+            max_random_area=1,
+            min_random_area=0.08,
+            brightness=jitter_param,
+            saturation=jitter_param,
+            contrast=jitter_param,
+            pca_noise=lighting_param,
         )
         val_data = mx.io.ImageRecordIter(
-            path_imgrec         = rec_val,
-            path_imgidx         = rec_val_idx,
-            preprocess_threads  = num_workers,
-            shuffle             = False,
-            batch_size          = batch_size,
+            path_imgrec=rec_val,
+            path_imgidx=rec_val_idx,
+            preprocess_threads=num_workers,
+            shuffle=False,
+            batch_size=batch_size,
 
-            resize              = resize,
-            data_shape          = (3, input_size, input_size),
-            mean_r              = mean_rgb[0],
-            mean_g              = mean_rgb[1],
-            mean_b              = mean_rgb[2],
-            std_r               = std_rgb[0],
-            std_g               = std_rgb[1],
-            std_b               = std_rgb[2],
+            resize=resize,
+            data_shape=(3, input_size, input_size),
+            mean_r=mean_rgb[0],
+            mean_g=mean_rgb[1],
+            mean_b=mean_rgb[2],
+            std_r=std_rgb[0],
+            std_g=std_rgb[1],
+            std_b=std_rgb[2],
         )
         return train_data, val_data, batch_fn
 
@@ -262,7 +277,7 @@ def main():
             transforms.RandomResizedCrop(input_size),
             transforms.RandomFlipLeftRight(),
             transforms.RandomColorJitter(brightness=jitter_param, contrast=jitter_param,
-                                        saturation=jitter_param),
+                                         saturation=jitter_param),
             transforms.RandomLighting(lighting_param),
             transforms.ToTensor(),
             normalize
@@ -283,19 +298,63 @@ def main():
 
         return train_data, val_data, batch_fn
 
+    def get_kaggle_data_loader(data_dir, batch_size, num_workers):
+        normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        jitter_param = 0.4
+        lighting_param = 0.1
+        input_size = opt.input_size
+        crop_ratio = opt.crop_ratio if opt.crop_ratio > 0 else 0.875
+        resize = int(math.ceil(input_size / crop_ratio))
+
+        def batch_fn(batch, ctx):
+            data = gluon.utils.split_and_load(batch[0], ctx_list=ctx, batch_axis=0, even_split=False)
+            label = gluon.utils.split_and_load(batch[1], ctx_list=ctx, batch_axis=0, even_split=False)
+            return data, label
+
+        transform_train = transforms.Compose([
+            #transforms.Resize(480),
+            transforms.RandomResizedCrop(input_size),
+            transforms.RandomFlipLeftRight(),
+            transforms.RandomColorJitter(brightness=jitter_param, contrast=jitter_param,
+                                         saturation=jitter_param),
+            transforms.RandomLighting(lighting_param),
+            transforms.ToTensor(),
+            normalize
+        ])
+        transform_test = transforms.Compose([
+            transforms.Resize(resize, keep_ratio=True),  # 256
+            transforms.CenterCrop(input_size),
+            transforms.ToTensor(),
+            normalize
+        ])
+
+        train_path = os.path.join(data_dir, 'train_all')
+        val_path = os.path.join(data_dir, 'val')
+
+        train_data = gluon.data.DataLoader(
+            gluon.data.vision.ImageFolderDataset(train_path).transform_first(transform_train),
+            batch_size=batch_size, shuffle=True, last_batch='discard', num_workers=num_workers)
+
+        val_data = gluon.data.DataLoader(
+            gluon.data.vision.ImageFolderDataset(val_path).transform_first(transform_test),
+            batch_size=batch_size, shuffle=False, num_workers=num_workers)
+        return train_data, val_data, batch_fn
+
     if opt.use_rec:
         train_data, val_data, batch_fn = get_data_rec(opt.rec_train, opt.rec_train_idx,
-                                                    opt.rec_val, opt.rec_val_idx,
-                                                    batch_size, num_workers)
+                                                      opt.rec_val, opt.rec_val_idx,
+                                                      batch_size, num_workers)
     else:
-        train_data, val_data, batch_fn = get_data_loader(opt.data_dir, batch_size, num_workers)
+        # train_data, val_data, batch_fn = get_data_loader(opt.data_dir, batch_size, num_workers)
+        train_data, val_data, batch_fn = get_kaggle_data_loader(opt.data_dir, batch_size, num_workers)
 
     if opt.mixup:
         train_metric = mx.metric.RMSE()
     else:
         train_metric = mx.metric.Accuracy()
+
     acc_top1 = mx.metric.Accuracy()
-    acc_top5 = mx.metric.TopKAccuracy(5)
+    # acc_top5 = mx.metric.TopKAccuracy(5)
 
     save_frequency = opt.save_frequency
     if opt.save_dir and save_frequency:
@@ -310,9 +369,9 @@ def main():
             label = [label]
         res = []
         for l in label:
-            y1 = l.one_hot(classes, on_value = 1 - eta + eta/classes, off_value = eta/classes)
-            y2 = l[::-1].one_hot(classes, on_value = 1 - eta + eta/classes, off_value = eta/classes)
-            res.append(lam*y1 + (1-lam)*y2)
+            y1 = l.one_hot(classes, on_value=1 - eta + eta / classes, off_value=eta / classes)
+            y2 = l[::-1].one_hot(classes, on_value=1 - eta + eta / classes, off_value=eta / classes)
+            res.append(lam * y1 + (1 - lam) * y2)
         return res
 
     def smooth(label, classes, eta=0.1):
@@ -320,7 +379,7 @@ def main():
             label = [label]
         smoothed = []
         for l in label:
-            res = l.one_hot(classes, on_value = 1 - eta + eta/classes, off_value = eta/classes)
+            res = l.one_hot(classes, on_value=1 - eta + eta / classes, off_value=eta / classes)
             smoothed.append(res)
         return smoothed
 
@@ -328,16 +387,18 @@ def main():
         if opt.use_rec:
             val_data.reset()
         acc_top1.reset()
-        acc_top5.reset()
+        # acc_top5.reset()
         for i, batch in enumerate(val_data):
             data, label = batch_fn(batch, ctx)
             outputs = [net(X.astype(opt.dtype, copy=False)) for X in data]
             acc_top1.update(label, outputs)
-            acc_top5.update(label, outputs)
+            # acc_top5.update(label, outputs)
 
         _, top1 = acc_top1.get()
-        _, top5 = acc_top5.get()
-        return (1-top1, 1-top5)
+        # _, top5 = acc_top5.get()
+        # return (1-top1, 1-top5)
+
+        return (1 - top1)
 
     def train(ctx):
         if isinstance(ctx, mx.Context):
@@ -359,8 +420,8 @@ def main():
             sparse_label_loss = True
         if distillation:
             L = gcv.loss.DistillationSoftmaxCrossEntropyLoss(temperature=opt.temperature,
-                                                                 hard_weight=opt.hard_weight,
-                                                                 sparse_label=sparse_label_loss)
+                                                             hard_weight=opt.hard_weight,
+                                                             sparse_label=sparse_label_loss)
         else:
             L = gluon.loss.SoftmaxCrossEntropyLoss(sparse_label=sparse_label_loss)
 
@@ -372,7 +433,6 @@ def main():
                 train_data.reset()
             train_metric.reset()
             btic = time.time()
-
             for i, batch in enumerate(train_data):
                 data, label = batch_fn(batch, ctx)
 
@@ -380,7 +440,7 @@ def main():
                     lam = np.random.beta(opt.mixup_alpha, opt.mixup_alpha)
                     if epoch >= opt.num_epochs - opt.mixup_off_epoch:
                         lam = 1
-                    data = [lam*X + (1-lam)*X[::-1] for X in data]
+                    data = [lam * X + (1 - lam) * X[::-1] for X in data]
 
                     if opt.label_smoothing:
                         eta = 0.1
@@ -395,22 +455,29 @@ def main():
                 if distillation:
                     teacher_prob = [nd.softmax(teacher(X.astype(opt.dtype, copy=False)) / opt.temperature) \
                                     for X in data]
-
                 with ag.record():
                     outputs = [net(X.astype(opt.dtype, copy=False)) for X in data]
                     if distillation:
-                        loss = [L(yhat.astype('float32', copy=False),
-                                  y.astype('float32', copy=False),
-                                  p.astype('float32', copy=False)) for yhat, y, p in zip(outputs, label, teacher_prob)]
+                        if opt.dtype != 'float32':
+                            loss = [L(yhat.astype('float16', copy=False),
+                                      y.astype('float16', copy=False),
+                                      p.astype('float16', copy=False)) for yhat, y, p in
+                                    zip(outputs, label, teacher_prob)]
+                        else:
+                            loss = [L(yhat.astype('float32', copy=False),
+                                      y.astype('float32', copy=False),
+                                      p.astype('float32', copy=False)) for yhat, y, p in
+                                    zip(outputs, label, teacher_prob)]
                     else:
                         loss = [L(yhat, y.astype(opt.dtype, copy=False)) for yhat, y in zip(outputs, label)]
+
                 for l in loss:
                     l.backward()
                 trainer.step(batch_size)
 
                 if opt.mixup:
                     output_softmax = [nd.SoftmaxActivation(out.astype('float32', copy=False)) \
-                                    for out in outputs]
+                                      for out in outputs]
                     train_metric.update(label, output_softmax)
                 else:
                     if opt.label_smoothing:
@@ -418,35 +485,39 @@ def main():
                     else:
                         train_metric.update(label, outputs)
 
-                if opt.log_interval and not (i+1)%opt.log_interval:
+                if opt.log_interval and not (i + 1) % opt.log_interval:
                     train_metric_name, train_metric_score = train_metric.get()
-                    logger.info('Epoch[%d] Batch [%d]\tSpeed: %f samples/sec\t%s=%f\tlr=%f'%(
-                                epoch, i, batch_size*opt.log_interval/(time.time()-btic),
-                                train_metric_name, train_metric_score, trainer.learning_rate))
+                    logger.info('Epoch[%d] Batch [%d]\tSpeed: %f samples/sec\t%s=%f\tlr=%f' % (
+                        epoch, i, batch_size * opt.log_interval / (time.time() - btic),
+                        train_metric_name, train_metric_score, trainer.learning_rate))
                     btic = time.time()
 
             train_metric_name, train_metric_score = train_metric.get()
-            throughput = int(batch_size * i /(time.time() - tic))
 
-            err_top1_val, err_top5_val = test(ctx, val_data)
+            throughput = int(batch_size * i / (time.time() - tic))
+            # print('throughput: %d = int(%d) * %d/ (%f - %f)' % (throughput, batch_size, i, time.time(), tic))
 
-            logger.info('[Epoch %d] training: %s=%f'%(epoch, train_metric_name, train_metric_score))
-            logger.info('[Epoch %d] speed: %d samples/sec\ttime cost: %f'%(epoch, throughput, time.time()-tic))
-            logger.info('[Epoch %d] validation: err-top1=%f err-top5=%f'%(epoch, err_top1_val, err_top5_val))
+            # err_top1_val, err_top5_val = test(ctx, val_data)
+            err_top1_val = test(ctx, val_data)
+
+            logger.info('[Epoch %d] training: %s=%f' % (epoch, train_metric_name, train_metric_score))
+            logger.info('[Epoch %d] speed: %d samples/sec\ttime cost: %f' % (epoch, throughput, time.time() - tic))
+            # logger.info('[Epoch %d] validation: err-top1=%f err-top5=%f'%(epoch, err_top1_val, err_top5_val))
 
             if err_top1_val < best_val_score:
                 best_val_score = err_top1_val
-                net.save_parameters('%s/%.4f-imagenet-%s-%d-best.params'%(save_dir, best_val_score, model_name, epoch))
-                trainer.save_states('%s/%.4f-imagenet-%s-%d-best.states'%(save_dir, best_val_score, model_name, epoch))
+                net.save_parameters(
+                    '%s/%.4f-imagenet-%s-%d-best.params' % (save_dir, best_val_score, model_name, epoch))
+                trainer.save_states(
+                    '%s/%.4f-imagenet-%s-%d-best.states' % (save_dir, best_val_score, model_name, epoch))
 
             if save_frequency and save_dir and (epoch + 1) % save_frequency == 0:
-                net.save_parameters('%s/imagenet-%s-%d.params'%(save_dir, model_name, epoch))
-                trainer.save_states('%s/imagenet-%s-%d.states'%(save_dir, model_name, epoch))
+                net.save_parameters('%s/imagenet-%s-%d.params' % (save_dir, model_name, epoch))
+                trainer.save_states('%s/imagenet-%s-%d.states' % (save_dir, model_name, epoch))
 
         if save_frequency and save_dir:
-            net.save_parameters('%s/imagenet-%s-%d.params'%(save_dir, model_name, opt.num_epochs-1))
-            trainer.save_states('%s/imagenet-%s-%d.states'%(save_dir, model_name, opt.num_epochs-1))
-
+            net.save_parameters('%s/imagenet-%s-%d.params' % (save_dir, model_name, opt.num_epochs - 1))
+            trainer.save_states('%s/imagenet-%s-%d.states' % (save_dir, model_name, opt.num_epochs - 1))
 
     if opt.mode == 'hybrid':
         net.hybridize(static_alloc=True, static_shape=True)
@@ -454,5 +525,7 @@ def main():
             teacher.hybridize(static_alloc=True, static_shape=True)
     train(context)
 
+
 if __name__ == '__main__':
     main()
+    # /media/ramdisk/data/dataset/plant-seedlings-classification/train

@@ -1,19 +1,17 @@
 import argparse, time, logging, os, math
-
 import numpy as np
 import mxnet as mx
 import gluoncv as gcv
-from mxnet import gluon, nd
+from mxnet import gluon, nd, init
 from mxnet import autograd as ag
 from mxnet.gluon import nn
 from mxnet.gluon.data.vision import transforms
-
-import gluoncv as gcv
-gcv.utils.check_version('0.6.0')
 from gluoncv.data import imagenet
 from gluoncv.model_zoo import get_model
 from gluoncv.utils import makedirs, LRSequential, LRScheduler
+from matplotlib import pyplot as plt
 
+import random
 # CLI
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a model for image classification.')
@@ -89,7 +87,7 @@ def parse_args():
                         help='weight for the loss of one-hot label for distillation training')
     parser.add_argument('--batch-norm', action='store_true',
                         help='enable batch normalization or not in vgg. default is false.')
-    parser.add_argument('--save-frequency', type=int, default=10,
+    parser.add_argument('--save-frequency', type=int, default=5,
                         help='frequency of model saving.')
     parser.add_argument('--save-dir', type=str, default='params',
                         help='directory of saved models')
@@ -105,32 +103,95 @@ def parse_args():
                         help='name of training log file')
     parser.add_argument('--use-gn', action='store_true',
                         help='whether to use group norm.')
+
+    parser.add_argument('--classes', type=int, default=0,
+                        help='class.')
+    parser.add_argument('--num_training_samples', type=int, default=0,
+                        help='num_training_samples')
+
     opt = parser.parse_args()
     return opt
 
+def semilogy(x_vals, y_vals, x_label, y_label,
+             save_name,
+             x2_vals=None, y2_vals=None, legend=None):
+    """Plot x and log(y)."""
+    """
+    1-120, train_ls, 'epochs', 'top1 acc',1-120, test_ls, ['train', 'test']
+    """
+    plt.xlabel(x_label)
+    plt.ylabel(y_label)
+    plt.semilogy(x_vals, y_vals)
+    if x2_vals and y2_vals:
+        plt.semilogy(x2_vals, y2_vals, linestyle=':')
+        plt.legend(legend)
+    # plt.figure(figsize=(640,480))
+    plt.savefig(save_name[:-4] + '_top1_acc.png')
+    plt.show()
+
+def all_np(arr):
+    # arr = np.array(arr)
+    key = np.unique(arr)
+    result = {}
+    for k in key:
+        mask = (arr == k)
+        arr_new = arr[mask]
+        v = arr_new.size
+        result[k] = v
+    return result
+
+def all_list(arr):  # list
+    result = {}
+    for i in set(arr):
+        result[i] = arr.count(i)
+    return result
+
+def balance_train(data):
+    list_label_group = data._data.items
+    origin_label_group = []
+    origin_images_group = []
+    for i, image_label in enumerate(list_label_group):
+        origin_label_group.append(image_label[1])
+        origin_images_group.append(image_label[0])
+    # list(tuple) -> dict
+    dict_train = {}
+    for name, label in zip(origin_images_group, origin_label_group):
+        # label exist
+        if not label in dict_train.keys():
+            dict_train[label] = [name]
+        else:
+            dict_train[label].append(name)
+    frequency = all_list(origin_label_group)
+    for i in dict_train.keys():
+        list_value = dict_train[i]
+        while len(dict_train[i]) < max(frequency.values()):
+            dict_train[i].append(random.choice(list_value))
+    # dict -> list(tuple)
+    balance_list_label_group = []
+    for i, j in dict_train.items():
+        for jj in j:
+            balance_list_label_group.append(tuple((jj, i)))
+    data._data.items = balance_list_label_group
+    return data
 
 def main():
     opt = parse_args()
-
     filehandler = logging.FileHandler(opt.logging_file)
     streamhandler = logging.StreamHandler()
-
     logger = logging.getLogger('')
     logger.setLevel(logging.INFO)
     logger.addHandler(filehandler)
     logger.addHandler(streamhandler)
-
     logger.info(opt)
 
-    batch_size = opt.batch_size
-    classes = 1000
-    num_training_samples = 1281167
-
     num_gpus = opt.num_gpus
-    batch_size *= max(1, num_gpus)
     context = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
     num_workers = opt.num_workers
 
+    batch_size = opt.batch_size
+    classes = opt.classes
+    num_training_samples = opt.num_training_samples
+    batch_size *= max(1, num_gpus)
     lr_decay = opt.lr_decay
     lr_decay_period = opt.lr_decay_period
     if opt.lr_decay_period > 0:
@@ -139,7 +200,6 @@ def main():
         lr_decay_epoch = [int(i) for i in opt.lr_decay_epoch.split(',')]
     lr_decay_epoch = [e - opt.warmup_epochs for e in lr_decay_epoch]
     num_batches = num_training_samples // batch_size
-
     lr_scheduler = LRSequential([
         LRScheduler('linear', base_lr=0, target_lr=opt.lr,
                     nepochs=opt.warmup_epochs, iters_per_epoch=num_batches),
@@ -151,8 +211,11 @@ def main():
     ])
 
     model_name = opt.model
+    if opt.use_pretrained:
+        kwargs = {'ctx': context, 'pretrained': opt.use_pretrained }
+    else:
+        kwargs = {'ctx': context, 'pretrained': opt.use_pretrained , 'classes': classes}
 
-    kwargs = {'ctx': context, 'pretrained': opt.use_pretrained, 'classes': classes}
     if opt.use_gn:
         from gluoncv.nn import GroupNorm
         kwargs['norm_layer'] = GroupNorm
@@ -160,7 +223,6 @@ def main():
         kwargs['batch_norm'] = opt.batch_norm
     elif model_name.startswith('resnext'):
         kwargs['use_se'] = opt.use_se
-
     if opt.last_gamma:
         kwargs['last_gamma'] = True
 
@@ -170,9 +232,22 @@ def main():
         optimizer_params['multi_precision'] = True
 
     net = get_model(model_name, **kwargs)
-    net.cast(opt.dtype)
+    with net.name_scope():
+        if hasattr(net, 'output'):
+            net.output = gluon.nn.Dense(classes)
+            net.output.initialize(init.Xavier(), ctx=context)
+        else:
+            assert hasattr(net, 'fc')
+            net.fc = gluon.nn.Dense(classes)
+            net.fc.initialize(init.Xavier(), ctx=context)
+
+    # initialize and context
+    # net.collect_params().reset_ctx(context)
+    # Assign Parameter to given context. If ctx is a list of Context, a  copy will be made for each context.
+
     if opt.resume_params is not '':
-        net.load_parameters(opt.resume_params, ctx = context)
+        net.load_parameters(opt.resume_params, ctx=context, cast_dtype=True)  # fp16 cast_dtype=False 错在里边
+    net.cast(opt.dtype)
 
     # teacher model for distillation training
     if opt.teacher is not None and opt.hard_weight < 1.0:
@@ -283,19 +358,67 @@ def main():
 
         return train_data, val_data, batch_fn
 
+    def get_kaggle_data_loader(data_dir, batch_size, num_workers):
+        normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        jitter_param = 0.4
+        lighting_param = 0.1
+        input_size = opt.input_size
+        crop_ratio = opt.crop_ratio if opt.crop_ratio > 0 else 0.875
+        resize = int(math.ceil(input_size / crop_ratio))
+
+        def batch_fn(batch, ctx):
+            data = gluon.utils.split_and_load(batch[0], ctx_list=ctx, batch_axis=0, even_split= False)
+            label = gluon.utils.split_and_load(batch[1], ctx_list=ctx, batch_axis=0, even_split= False)
+            return data, label
+
+        transform_train = transforms.Compose([
+            transforms.Resize(480),
+            transforms.RandomResizedCrop(input_size),
+            transforms.RandomFlipLeftRight(),
+            transforms.RandomColorJitter(brightness=jitter_param, contrast=jitter_param,
+                                         saturation=jitter_param),
+            transforms.RandomLighting(lighting_param),
+            transforms.ToTensor(),
+            normalize
+        ])
+        transform_test = transforms.Compose([
+            transforms.Resize(resize, keep_ratio=True),# 256
+            transforms.CenterCrop(input_size),
+            transforms.ToTensor(),
+            normalize
+        ])
+
+        train_path = os.path.join(data_dir, 'train')
+        val_path = os.path.join(data_dir, 'val')
+
+
+        balance_dict_train = balance_train(gluon.data.vision.ImageFolderDataset(train_path).transform_first(transform_train))
+        train_data = gluon.data.DataLoader(balance_dict_train, batch_size=batch_size, shuffle=True, last_batch='discard',num_workers=num_workers)
+
+        # train_data = gluon.data.DataLoader(gluon.data.vision.ImageFolderDataset(train_path).transform_first(transform_train), batch_size=batch_size, shuffle=True, last_batch='discard',num_workers=num_workers)
+
+        val_data = gluon.data.DataLoader(
+            gluon.data.vision.ImageFolderDataset(val_path).transform_first(transform_test),
+            batch_size=batch_size, shuffle=False, num_workers=num_workers)
+        return train_data, val_data, batch_fn
+
+
+
     if opt.use_rec:
         train_data, val_data, batch_fn = get_data_rec(opt.rec_train, opt.rec_train_idx,
                                                     opt.rec_val, opt.rec_val_idx,
                                                     batch_size, num_workers)
     else:
-        train_data, val_data, batch_fn = get_data_loader(opt.data_dir, batch_size, num_workers)
+        # train_data, val_data, batch_fn = get_data_loader(opt.data_dir, batch_size, num_workers)
+        train_data, val_data, batch_fn = get_kaggle_data_loader(opt.data_dir, batch_size, num_workers)
 
     if opt.mixup:
         train_metric = mx.metric.RMSE()
     else:
         train_metric = mx.metric.Accuracy()
+
     acc_top1 = mx.metric.Accuracy()
-    acc_top5 = mx.metric.TopKAccuracy(5)
+    #acc_top5 = mx.metric.TopKAccuracy(5)
 
     save_frequency = opt.save_frequency
     if opt.save_dir and save_frequency:
@@ -328,16 +451,18 @@ def main():
         if opt.use_rec:
             val_data.reset()
         acc_top1.reset()
-        acc_top5.reset()
+        # acc_top5.reset()
         for i, batch in enumerate(val_data):
             data, label = batch_fn(batch, ctx)
             outputs = [net(X.astype(opt.dtype, copy=False)) for X in data]
             acc_top1.update(label, outputs)
-            acc_top5.update(label, outputs)
+            # acc_top5.update(label, outputs)
 
         _, top1 = acc_top1.get()
-        _, top5 = acc_top5.get()
-        return (1-top1, 1-top5)
+        # _, top5 = acc_top5.get()
+        # return (1-top1, 1-top5)
+
+        return (1 - top1)
 
     def train(ctx):
         if isinstance(ctx, mx.Context):
@@ -353,6 +478,7 @@ def main():
         if opt.resume_states is not '':
             trainer.load_states(opt.resume_states)
 
+
         if opt.label_smoothing or opt.mixup:
             sparse_label_loss = False
         else:
@@ -365,6 +491,7 @@ def main():
             L = gluon.loss.SoftmaxCrossEntropyLoss(sparse_label=sparse_label_loss)
 
         best_val_score = 1
+        train_ls, test_ls = [], []
 
         for epoch in range(opt.resume_epoch, opt.num_epochs):
             tic = time.time()
@@ -372,7 +499,124 @@ def main():
                 train_data.reset()
             train_metric.reset()
             btic = time.time()
+            for i, batch in enumerate(train_data):
+                data, label = batch_fn(batch, ctx)
+                # balance_check = all_np(label[0])
 
+                if opt.mixup:
+                    lam = np.random.beta(opt.mixup_alpha, opt.mixup_alpha)
+                    if epoch >= opt.num_epochs - opt.mixup_off_epoch:
+                        lam = 1
+                    data = [lam*X + (1-lam)*X[::-1] for X in data]
+
+                    if opt.label_smoothing:
+                        eta = 0.1
+                    else:
+                        eta = 0.0
+                    label = mixup_transform(label, classes, lam, eta)
+
+                elif opt.label_smoothing:
+                    hard_label = label
+                    label = smooth(label, classes)
+
+                if distillation:
+                    teacher_prob = [nd.softmax(teacher(X.astype(opt.dtype, copy=False)) / opt.temperature) \
+                                    for X in data]
+                with ag.record():
+                    outputs = [net(X.astype(opt.dtype, copy=False)) for X in data]
+                    if distillation:
+                        if opt.dtype != 'float32':
+                            loss = [L(yhat.astype('float16', copy=False),
+                                      y.astype('float16', copy=False),
+                                      p.astype('float16', copy=False)) for yhat, y, p in zip(outputs, label, teacher_prob)]
+                        else:
+                            loss = [L(yhat.astype('float32', copy=False),
+                                      y.astype('float32', copy=False),
+                                      p.astype('float32', copy=False)) for yhat, y, p in zip(outputs, label, teacher_prob)]
+                    else:
+                        loss = [L(yhat, y.astype(opt.dtype, copy=False)) for yhat, y in zip(outputs, label)]
+
+                for l in loss:
+                    l.backward()
+                trainer.step(batch_size)
+
+                if opt.mixup:
+                    output_softmax = [nd.SoftmaxActivation(out.astype('float32', copy=False)) \
+                                    for out in outputs]
+                    train_metric.update(label, output_softmax)
+                else:
+                    if opt.label_smoothing:
+                        train_metric.update(hard_label, outputs)
+                    else:
+                        train_metric.update(label, outputs)
+
+
+                if opt.log_interval and not (i+1)%opt.log_interval:
+                    train_metric_name, train_metric_score = train_metric.get()
+                    logger.info('Epoch[%d] Batch [%d]\tSpeed: %f samples/sec\t%s=%f\tlr=%f'%(
+                                epoch, i, batch_size*opt.log_interval/(time.time()-btic),
+                                train_metric_name, train_metric_score, trainer.learning_rate))
+                    btic = time.time()
+
+            train_metric_name, train_metric_score = train_metric.get()
+
+            throughput = int(batch_size * i /(time.time() - tic))
+            # print('throughput: %d = int(%d) * %d/ (%f - %f)' % (throughput, batch_size, i, time.time(), tic))
+
+            # err_top1_val, err_top5_val = test(ctx, val_data)
+            err_top1_val= test(ctx, val_data)
+
+            logger.info('[Epoch %d] training: %s=%f'%(epoch, train_metric_name, train_metric_score))
+            logger.info('[Epoch %d] speed: %d samples/sec\ttime cost: %f'%(epoch, throughput, time.time()-tic))
+            # logger.info('[Epoch %d] validation: err-top1=%f err-top5=%f'%(epoch, err_top1_val, err_top5_val))
+            logger.info('[Epoch %d] validation: err-top1=%f err-top5=%f'%(epoch, err_top1_val))
+
+            if err_top1_val < best_val_score:
+                best_val_score = err_top1_val
+                net.save_parameters('%s/%.4f-imagenet-%s-%d-best.params'%(save_dir, best_val_score, model_name, epoch))
+                trainer.save_states('%s/%.4f-imagenet-%s-%d-best.states'%(save_dir, best_val_score, model_name, epoch))
+
+
+            if save_frequency and save_dir and (epoch + 1) % save_frequency == 0:
+                net.save_parameters('%s/imagenet-%s-%d.params'%(save_dir, model_name, epoch))
+                trainer.save_states('%s/imagenet-%s-%d.states'%(save_dir, model_name, epoch))
+
+            train_ls.append(train_metric_score)
+            test_ls.append(err_top1_val)
+        if isinstance(ctx, mx.Context):
+            ctx = [ctx]
+        if opt.resume_params is '':
+            net.initialize(mx.init.MSRAPrelu(), ctx=ctx)
+
+        if opt.no_wd:
+            for k, v in net.collect_params('.*beta|.*gamma|.*bias').items():
+                v.wd_mult = 0.0
+
+        trainer = gluon.Trainer(net.collect_params(), optimizer, optimizer_params)
+        if opt.resume_states is not '':
+            trainer.load_states(opt.resume_states)
+
+
+        if opt.label_smoothing or opt.mixup:
+            sparse_label_loss = False
+        else:
+            sparse_label_loss = True
+        if distillation:
+            L = gcv.loss.DistillationSoftmaxCrossEntropyLoss(temperature=opt.temperature,
+                                                                 hard_weight=opt.hard_weight,
+                                                                 sparse_label=sparse_label_loss)
+        else:
+            L = gluon.loss.SoftmaxCrossEntropyLoss(sparse_label=sparse_label_loss)
+
+        best_val_score = 1
+        train_ls, test_ls = [], []
+
+        for epoch in range(opt.resume_epoch, opt.num_epochs):
+            tic = time.time()
+            if opt.use_rec:
+                train_data.reset()
+            train_metric.reset()
+            btic = time.time()
             for i, batch in enumerate(train_data):
                 data, label = batch_fn(batch, ctx)
 
@@ -395,15 +639,20 @@ def main():
                 if distillation:
                     teacher_prob = [nd.softmax(teacher(X.astype(opt.dtype, copy=False)) / opt.temperature) \
                                     for X in data]
-
                 with ag.record():
                     outputs = [net(X.astype(opt.dtype, copy=False)) for X in data]
                     if distillation:
-                        loss = [L(yhat.astype('float32', copy=False),
-                                  y.astype('float32', copy=False),
-                                  p.astype('float32', copy=False)) for yhat, y, p in zip(outputs, label, teacher_prob)]
+                        if opt.dtype != 'float32':
+                            loss = [L(yhat.astype('float16', copy=False),
+                                      y.astype('float16', copy=False),
+                                      p.astype('float16', copy=False)) for yhat, y, p in zip(outputs, label, teacher_prob)]
+                        else:
+                            loss = [L(yhat.astype('float32', copy=False),
+                                      y.astype('float32', copy=False),
+                                      p.astype('float32', copy=False)) for yhat, y, p in zip(outputs, label, teacher_prob)]
                     else:
                         loss = [L(yhat, y.astype(opt.dtype, copy=False)) for yhat, y in zip(outputs, label)]
+
                 for l in loss:
                     l.backward()
                 trainer.step(batch_size)
@@ -418,6 +667,7 @@ def main():
                     else:
                         train_metric.update(label, outputs)
 
+
                 if opt.log_interval and not (i+1)%opt.log_interval:
                     train_metric_name, train_metric_score = train_metric.get()
                     logger.info('Epoch[%d] Batch [%d]\tSpeed: %f samples/sec\t%s=%f\tlr=%f'%(
@@ -426,22 +676,38 @@ def main():
                     btic = time.time()
 
             train_metric_name, train_metric_score = train_metric.get()
-            throughput = int(batch_size * i /(time.time() - tic))
 
-            err_top1_val, err_top5_val = test(ctx, val_data)
+            throughput = int(batch_size * i /(time.time() - tic))
+            # print('throughput: %d = int(%d) * %d/ (%f - %f)' % (throughput, batch_size, i, time.time(), tic))
+
+            # err_top1_val, err_top5_val = test(ctx, val_data)
+            err_top1_val= test(ctx, val_data)
 
             logger.info('[Epoch %d] training: %s=%f'%(epoch, train_metric_name, train_metric_score))
             logger.info('[Epoch %d] speed: %d samples/sec\ttime cost: %f'%(epoch, throughput, time.time()-tic))
-            logger.info('[Epoch %d] validation: err-top1=%f err-top5=%f'%(epoch, err_top1_val, err_top5_val))
+            # logger.info('[Epoch %d] validation: err-top1=%f err-top5=%f'%(epoch, err_top1_val, err_top5_val))
 
             if err_top1_val < best_val_score:
                 best_val_score = err_top1_val
                 net.save_parameters('%s/%.4f-imagenet-%s-%d-best.params'%(save_dir, best_val_score, model_name, epoch))
                 trainer.save_states('%s/%.4f-imagenet-%s-%d-best.states'%(save_dir, best_val_score, model_name, epoch))
 
+
             if save_frequency and save_dir and (epoch + 1) % save_frequency == 0:
                 net.save_parameters('%s/imagenet-%s-%d.params'%(save_dir, model_name, epoch))
                 trainer.save_states('%s/imagenet-%s-%d.states'%(save_dir, model_name, epoch))
+
+            train_ls.append(train_metric_score)
+            test_ls.append(err_top1_val)
+
+
+        if save_frequency and save_dir:
+            net.save_parameters('%s/imagenet-%s-%d.params'%(save_dir, model_name, opt.num_epochs-1))
+            trainer.save_states('%s/imagenet-%s-%d.states'%(save_dir, model_name, opt.num_epochs-1))
+
+        semilogy(range(opt.resume_epoch, opt.num_epochs), train_ls, 'epochs', 'top1 acc',
+                 opt.logging_file,
+                 range(opt.resume_epoch, opt.num_epochs), test_ls, ['train', 'test'])
 
         if save_frequency and save_dir:
             net.save_parameters('%s/imagenet-%s-%d.params'%(save_dir, model_name, opt.num_epochs-1))

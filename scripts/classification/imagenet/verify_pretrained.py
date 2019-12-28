@@ -7,8 +7,20 @@ from mxnet.gluon.nn import Block, HybridBlock
 from mxnet.gluon.data.vision import transforms
 from mxnet.contrib.quantization import *
 
+import gluoncv as gcv
+# gcv.utils.check_version('0.6.0')
 from gluoncv.data import imagenet
 from gluoncv.model_zoo import get_model
+
+"""
+
+python verify_pretrained.py --data-dir /media/ramdisk/dataset/ --dataset shopee-iet-machine-learning-competition --classes 18 --model resnet152_v1d --params-file /home/ubuntu/workspace/gluon-cv_kaggle/scripts/classification/imagenet/shopee_params_resnet152_v1d_best_fp32_train_all/imagenet-resnet152_v1d-399.params --batch-size 1
+
+# plant 
+python verify_pretrained.py --data-dir /media/ramdisk/dataset/ --dataset plant-seedlings-classification --classes 12 --model resnet50_v1 --params-file /home/ubuntu/workspace/gluon-cv_kaggle/scripts/classification/imagenet/plant_params_resnet50_v1_best_fp16/imagenet-resnet50_v1-359.params --batch-size 1 --benchmark --dtype float16
+
+"""
+
 
 # CLI
 def parse_args():
@@ -65,6 +77,14 @@ def parse_args():
                              ' thresholds. This mode is expected to produce the best inference accuracy of all three'
                              ' kinds of quantized models if the calibration dataset is representative enough of the'
                              ' inference dataset.')
+
+
+    parser.add_argument('--classes', type=int, default = 18,
+                        help='path to the input picture')
+    parser.add_argument('--dataset', type=str, default = 'shopee-iet-machine-learning-competition',
+                        help='path to the input picture')
+
+
     opt = parser.parse_args()
     return opt
 
@@ -82,9 +102,9 @@ def benchmark(network, ctx, batch_size=64, image_size=224, num_iter=100, datatyp
 
 def test(network, ctx, val_data, mode='image'):
     acc_top1 = mx.metric.Accuracy()
-    acc_top5 = mx.metric.TopKAccuracy(5)
+    # acc_top5 = mx.metric.TopKAccuracy(5)
     acc_top1.reset()
-    acc_top5.reset()
+    # acc_top5.reset()
     if not opt.rec_dir:
         num_batch = len(val_data)
     num = 0
@@ -98,22 +118,28 @@ def test(network, ctx, val_data, mode='image'):
             label = gluon.utils.split_and_load(batch.label[0], ctx_list=ctx, batch_axis=0)
         outputs = [network(X.astype(opt.dtype, copy=False)) for X in data]
         acc_top1.update(label, outputs)
-        acc_top5.update(label, outputs)
+        # acc_top5.update(label, outputs)
 
         _, top1 = acc_top1.get()
-        _, top5 = acc_top5.get()
+        # _, top5 = acc_top5.get()
         if not opt.rec_dir:
-            print('%d / %d : %.8f, %.8f'%(i, num_batch, 1-top1, 1-top5))
+            print('%d / %d : %.8f, %.8f'%(i, num_batch, 1-top1))
         else:
-            print('%d : %.8f, %.8f'%(i, 1-top1, 1-top5))
+            print('%d : %.8f, %.8f'%(i, 1-top1))
+        # if not opt.rec_dir:
+        #     print('%d / %d : %.8f, %.8f'%(i, num_batch, 1-top1, 1-top5))
+        # else:
+        #     print('%d : %.8f, %.8f'%(i, 1-top1, 1-top5))
+
         num += batch_size
     end = time.time()
     speed = num / (end - start)
     print('Throughput is %f img/sec.'% speed)
 
     _, top1 = acc_top1.get()
-    _, top5 = acc_top5.get()
-    return (1-top1, 1-top5)
+    # _, top5 = acc_top5.get()
+    return (1-top1)
+    # return (1-top1, 1-top5)
 
 if __name__ == '__main__':
     opt = parse_args()
@@ -123,7 +149,7 @@ if __name__ == '__main__':
     logging.info(opt)
 
     batch_size = opt.batch_size
-    classes = 1000
+    classes = opt.classes
 
     num_gpus = opt.num_gpus
     if num_gpus > 0:
@@ -174,9 +200,15 @@ if __name__ == '__main__':
 
     if not opt.benchmark:
         if not opt.rec_dir:
-            val_data = gluon.data.DataLoader(
-                imagenet.classification.ImageNet(opt.data_dir, train=False).transform_first(transform_test),
-                batch_size=batch_size, shuffle=False, num_workers=num_workers)
+            # val_data = gluon.data.DataLoader(
+            #     imagenet.classification.ImageNet(opt.data_dir, train=False).transform_first(transform_test),
+            #     batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+            test_path = os.path.join(opt.data_dir, opt.dataset, 'test')
+            test_ds = gluon.data.vision.ImageFolderDataset(test_path, flag=1)
+            val_data = gluon.data.DataLoader(test_ds.transform_first(transform_test), batch_size, shuffle=False,
+                                         last_batch='keep', num_workers=num_workers)
+
         else:
             imgrec = os.path.join(opt.rec_dir, 'val.rec')
             imgidx = os.path.join(opt.rec_dir, 'val.idx')
@@ -241,3 +273,6 @@ if __name__ == '__main__':
         params_count += v.data().size
 
     print(params_count)
+
+
+
