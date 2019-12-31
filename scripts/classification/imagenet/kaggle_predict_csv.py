@@ -11,10 +11,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Predict kaggle and predict to generate csv')
     parser.add_argument('--model', type=str, required=True,
                         help='name of the model to use')
-
     parser.add_argument('--saved-params', type=str, default='',
                         help='path to the saved model parameters')
-
     parser.add_argument('--data-dir', type=str, default= '/media/ramdisk/dataset/',
                         help='path to the input picture')
     parser.add_argument('--dataset', type=str, default = 'shopee-iet-machine-learning-competition',

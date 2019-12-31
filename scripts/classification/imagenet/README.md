@@ -67,13 +67,16 @@ python train_kaggle_baseline.py --use-pretrained --data-dir /media/ramdisk/datas
 ## fish
 python train_kaggle_baseline.py --use-pretrained --data-dir /media/ramdisk/dataset/fisheries_Monitoring/ --model resnet50_v1 --mode hybrid --lr 0.4 --lr-mode cosine --num-epochs 120 --batch-size 128 --num-gpus 2 -j 60 --warmup-epochs 5 --dtype float32 --last-gamma --no-wd --label-smoothing --save-dir fish_params_resnet50_v1_best_2 --logging-file fish_resnet50_v1_best_2.log --classes 8 --num_training_samples 3025
 
-
 ## dog
 python train_kaggle_baseline.py --use-pretrained --data-dir /media/ramdisk/data/dataset/dog-breed-identification/ --model resnext101_64x4d --mode hybrid --lr 0.4 --lr-mode step --num-epochs 180 --batch-size 48 --num-gpus 4 -j 60 --warmup-epochs 5 --dtype float32 --last-gamma --no-wd --label-smoothing --save-dir dog_params_resnext101_64x4d_best --logging-file dog_resnext101_64x4d_best.log
 
 ## shopee
 python train_kaggle_baseline.py --use-pretrained --data-dir /media/ramdisk/data/dataset/shopee-iet-machine-learning-competition/ --model resnet152_v1d --mode hybrid --lr 0.4 --lr-mode step --num-epochs 180 --batch-size 48 --num-gpus 4 -j 60 --warmup-epochs 5 --dtype float32 --last-gamma --no-wd --label-smoothing --save-dir shopee_params_resnet152_v1d_best --logging-file shopee_resnet152_v1d_best.log
-```
 
+## load_params -> overfit
+python train_kaggle_baseline.py --mode hybrid --lr 0.4 --lr-mode cosine --num-gpus 2 -j 60 --warmup-epochs 5 --last-gamma --no-wd --label-smoothing --dtype float32 --classes 18 --num_training_samples 30567 --num-epochs 800 --batch-size 64 --model resnet152_v1d --data-dir /media/ramdisk/dataset/shopee-iet-machine-learning-competition/ --save-dir shopee_params_resnet152_v1d_best_fp32_2 --logging-file shopee_params_resnet152_v1d_best_fp32_2.log --resume-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/shopee_params_resnet152_v1d_best/imagenet-resnet152_v1d-179.params --resume-states /home/ubuntu/workspace/baseline_gluoncv_model_saved/shopee_params_resnet152_v1d_best/imagenet-resnet152_v1d-179.states --resume-epoch 180
+
+## 
+```
 
 
