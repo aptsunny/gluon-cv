@@ -87,7 +87,7 @@ def parse_args():
                         help='weight for the loss of one-hot label for distillation training')
     parser.add_argument('--batch-norm', action='store_true',
                         help='enable batch normalization or not in vgg. default is false.')
-    parser.add_argument('--save-frequency', type=int, default=5,
+    parser.add_argument('--save-frequency', type=int, default=20,
                         help='frequency of model saving.')
     parser.add_argument('--save-dir', type=str, default='params',
                         help='directory of saved models')
@@ -185,7 +185,7 @@ def main():
     logger.info(opt)
 
     num_gpus = opt.num_gpus
-    context = [mx.gpu(i+6) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    context = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
     num_workers = opt.num_workers
 
     batch_size = opt.batch_size
@@ -210,6 +210,7 @@ def main():
                     step_factor=lr_decay, power=2)
     ])
 
+    print("A\n")
     model_name = opt.model
     if opt.use_pretrained:
         kwargs = {'ctx': context, 'pretrained': opt.use_pretrained }
@@ -230,17 +231,20 @@ def main():
     optimizer_params = {'wd': opt.wd, 'momentum': opt.momentum, 'lr_scheduler': lr_scheduler}
     if opt.dtype != 'float32':
         optimizer_params['multi_precision'] = True
-
+    print("B\n")
     net = get_model(model_name, **kwargs)
+    # what's meaning for?
     with net.name_scope():
         if hasattr(net, 'output'):
             net.output = gluon.nn.Dense(classes)
-            net.output.initialize(init.Xavier(), ctx=context)
+            # net.output.initialize(init.Xavier(), ctx=context)
+            net.output.initialize(init.MSRAPrelu(), ctx=context)
         else:
             assert hasattr(net, 'fc')
             net.fc = gluon.nn.Dense(classes)
-            net.fc.initialize(init.Xavier(), ctx=context)
-
+            # net.fc.initialize(init.Xavier(), ctx=context)
+            net.fc.initialize(init.MSRAPrelu(), ctx=context)
+    print("C\n")
     # initialize and context
     # net.collect_params().reset_ctx(context)
     # Assign Parameter to given context. If ctx is a list of Context, a  copy will be made for each context.
@@ -248,7 +252,7 @@ def main():
     if opt.resume_params is not '':
         net.load_parameters(opt.resume_params, ctx=context, cast_dtype=True)  # fp16 cast_dtype=False 错在里边
     net.cast(opt.dtype)
-
+    print("D\n")
     # teacher model for distillation training
     if opt.teacher is not None and opt.hard_weight < 1.0:
         teacher_name = opt.teacher
@@ -373,6 +377,9 @@ def main():
 
         transform_train = transforms.Compose([
             transforms.Resize(480),
+            transforms.RandomFlipTopBottom(),
+            transforms.RandomHue(0.1),
+
             transforms.RandomResizedCrop(input_size),
             transforms.RandomFlipLeftRight(),
             transforms.RandomColorJitter(brightness=jitter_param, contrast=jitter_param,
@@ -381,6 +388,7 @@ def main():
             transforms.ToTensor(),
             normalize
         ])
+
         transform_test = transforms.Compose([
             transforms.Resize(resize, keep_ratio=True),# 256
             transforms.CenterCrop(input_size),
@@ -467,9 +475,10 @@ def main():
     def train(ctx):
         if isinstance(ctx, mx.Context):
             ctx = [ctx]
-        if opt.resume_params is '':
-            net.initialize(mx.init.MSRAPrelu(), ctx=ctx)
-
+        # print("E0\n")
+        # if opt.resume_params is '':
+        #     net.initialize(mx.init.MSRAPrelu(), ctx=ctx)
+        # print("E1\n")
         if opt.no_wd:
             for k, v in net.collect_params('.*beta|.*gamma|.*bias').items():
                 v.wd_mult = 0.0
@@ -587,13 +596,9 @@ def main():
             net.save_parameters('%s/imagenet-%s-%d.params'%(save_dir, model_name, opt.num_epochs-1))
             trainer.save_states('%s/imagenet-%s-%d.states'%(save_dir, model_name, opt.num_epochs-1))
 
-        semilogy(range(opt.resume_epoch, opt.num_epochs), train_ls, 'epochs', 'top1 acc',
+        semilogy(range(opt.resume_epoch, opt.num_epochs ), train_ls, 'epochs', 'top1 acc',
                  opt.logging_file,
-                 range(opt.resume_epoch, opt.num_epochs), test_ls, ['train', 'test'])
-
-        if save_frequency and save_dir:
-            net.save_parameters('%s/imagenet-%s-%d.params'%(save_dir, model_name, opt.num_epochs-1))
-            trainer.save_states('%s/imagenet-%s-%d.states'%(save_dir, model_name, opt.num_epochs-1))
+                 range(opt.resume_epoch, opt.num_epochs ), test_ls, ['train', 'test'])
 
 
     if opt.mode == 'hybrid':

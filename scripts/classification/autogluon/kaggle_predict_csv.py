@@ -6,7 +6,6 @@ from mxnet import nd, image, gluon
 from mxnet.gluon import data as gdata
 from gluoncv.model_zoo import get_model
 
-
 def parse_args():
     parser = argparse.ArgumentParser(description='Predict kaggle and predict to generate csv')
     parser.add_argument('--model', type=str, required=True,
@@ -17,8 +16,6 @@ def parse_args():
                         help='path to the input picture')
     parser.add_argument('--dataset', type=str, default = 'shopee-iet-machine-learning-competition',
                         help='path to the input picture')
-
-
     parser.add_argument('--dtype', type=str, default = 'float32',
                         help='path to the input picture')
     parser.add_argument('--saved-dir', type=str, default='/home/ubuntu/workspace/baseline_gluoncv_model_saved',
@@ -58,10 +55,13 @@ def data_iter(opt):
     test_ds = gdata.vision.ImageFolderDataset(test_path, flag=1)
 
     transform_test = gdata.vision.transforms.Compose([
-        # resize 256 再进行inference 或许会好一点？
-        gdata.vision.transforms.Resize(256),
+        # resize 256/320 再进行inference 或许会好一点？ /0.875
+        # gdata.vision.transforms.Resize(256),
+        gdata.vision.transforms.Resize(320),# better
+        # gdata.vision.transforms.Resize(480),#
         # 将图像中央的高和宽均为224的正方形区域裁剪出来
-        # gdata.vision.transforms.CenterCrop(224),
+        gdata.vision.transforms.CenterCrop(224),
+
         gdata.vision.transforms.ToTensor(),
         gdata.vision.transforms.Normalize([0.485, 0.456, 0.406],
                                           [0.229, 0.224, 0.225])])
@@ -175,6 +175,7 @@ def generate_csv(dataset, csv_path, ids, inds, preds, pred_cla, class_name, cust
                       }
     # 是否需要原来sample submission的信息（标题的类别顺序可能实际读取的不一致，或者是要多类的概率）
     save_csv_name = custom +'.csv'
+    print(csv_path.replace('sample_submission.csv', save_csv_name))
     if csv_config['need_sample']:
         df = pd.read_csv(csv_path)
         # 是否存放在csv里边的是全名 ids->test 文件夹内部按照读取文件名排序

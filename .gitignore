@@ -117,3 +117,8 @@ ENV/
 *.jpeg*
 .idea/*
 *.sh
+
+
+
+deepfake/
+scripts/classification/autogluon/test_autogluon_args
