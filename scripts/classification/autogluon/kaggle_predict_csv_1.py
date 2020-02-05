@@ -6,7 +6,6 @@ from mxnet import nd, image, gluon
 from mxnet.gluon import data as gdata
 from gluoncv.model_zoo import get_model
 import random
-import copy
 """
 --custom
 pretrain_standford_dog_180_resnext101
@@ -27,22 +26,6 @@ float32
 python kaggle_predict_csv.py --custom pretrain_standford_dog_180_resnext101 --dataset dog-breed-identification --model resnext101_64x4d --saved-params /home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/pretrain_dog_params_resnext101_64x4d_best_stanford_fp32/imagenet-resnext101_64x4d-179.params --classes 120 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
 
 --random --resize 224 --resize-ratio 0.875 
-
-# shopee
-python kaggle_predict_csv.py --custom final_shopee_params_resnet152_v1d_best_60  --model resnet152_v1d --dataset shopee-iet-machine-learning-competition --classes 18 --dtype float32 --data-dir /home/ubuntu/workspace/dataset --saved-params /home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/final_fit_model/final_shopee_params_resnet152_v1d_best/imagenet-resnet152_v1d-59.params --resize 224 --resize-ratio 0.875  
-
-
-# cats[1]
-/home/ubuntu/workspace/dataset/dogs-vs-cats-redux-kernels-edition
-python kaggle_predict_csv.py --custom final_cats_ep180_gpu_179 --dataset dogs-vs-cats-redux-kernels-edition --model resnet34_v1b --saved-params /home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/final_fit_model/final_cats_params_resnet34_v1b_best/imagenet-resnet34_v1b-179.params --classes 2 --dtype float32 --data-dir /home/ubuntu/workspace/dataset --resize 224 --resize-ratio 0.875 
-
-python kaggle_predict_csv.py --custom final_plant_fp32_ep120_baseline_gpu_2_119 --dataset plant-seedlings-classification --model resnet50_v1 --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/plant_params_resnet50_v1_best_2_gpu/imagenet-resnet50_v1-119.params --classes 12 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
-
-# plant[1]
-# plant 119 109 99
-python kaggle_predict_csv.py --custom final_plant_ep120_gpu_2_119 --dataset plant-seedlings-classification --model resnet50_v1 --saved-params /home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/final_fit_model/final_plant_params_resnet50_v1_best_2/imagenet-resnet50_v1-119.params --classes 12 --dtype float32 --data-dir /home/ubuntu/workspace/dataset --resize 224 --resize-ratio 0.875 
-
---num-gpus 2 --gpu-index 4 
 
 # [3]
 # update 八卡机器的命令
@@ -69,7 +52,7 @@ python kaggle_predict_csv.py --custom aerial_params_resnet34_v1b_best_159 --data
 python kaggle_predict_csv.py --custom cats_params_resnet34_v1b_best_159 --dataset dogs-vs-cats-redux-kernels-edition --model resnet34_v1b --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/cats_params_resnet34_v1b_best/imagenet-resnet34_v1b-159.params --classes 2 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
 
 # plant 119 109 99
-python kaggle_predict_csv.py --custom final_plant_fp32_ep120_baseline_gpu_2_119 --dataset plant-seedlings-classification --model resnet50_v1 --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/plant_params_resnet50_v1_best_2_gpu/imagenet-resnet50_v1-119.params --classes 12 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
+python kaggle_predict_csv.py --custom plant_fp32_ep120_baseline_gpu_2_99 --dataset plant-seedlings-classification --model resnet50_v1 --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/plant_params_resnet50_v1_best_2_gpu/imagenet-resnet50_v1-99.params --classes 12 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
 
 
 """
@@ -80,11 +63,6 @@ def parse_args():
                         help='name of the model to use')
     parser.add_argument('--saved-params', type=str, default='',
                         help='path to the saved model parameters')
-    parser.add_argument('--saved-params-2', type=str, default='',
-                        help='path to the saved model parameters')
-    parser.add_argument('--saved-params-3', type=str, default='',
-                        help='path to the saved model parameters')
-
     parser.add_argument('--data-dir', type=str, default= '/media/ramdisk/dataset/',
                         help='path to the input picture')
     parser.add_argument('--dataset', type=str, default = 'shopee-iet-machine-learning-competition',
@@ -100,24 +78,18 @@ def parse_args():
     parser.add_argument('--custom', type=str, default = 'predict',
                         help='path to the input picture')
 
-
-    parser.add_argument('--gpu-index', type=int, default=0,
-                        help='gpu(i).')
-    parser.add_argument('--num-gpus', type=int, default=0,
-                        help='number of gpus to use.')
     parser.add_argument('--resize-ratio', type=float, default = 0.875,
                         help='path to the input picture')
     parser.add_argument('--resize', type=int, default = 224,
                         help='path to the input picture')
     parser.add_argument('--random_crop', action='store_true',
                         help='enable using pretrained model from gluon.')
-    parser.add_argument('--ensemble', action='store_true',
-                        help='use image record iter for data input. default is false.')
+
 
     opt = parser.parse_args()
     return opt
 
-def load_model(opt, pretrained, ctx, ensemble=False):
+def load_model(opt, pretrained, ctx):
     # get_model
     net = get_model(opt.model, pretrained=pretrained, ctx=ctx)
 
@@ -126,26 +98,11 @@ def load_model(opt, pretrained, ctx, ensemble=False):
             net.output = gluon.nn.Dense(opt.classes)
         else:
             assert hasattr(net, 'fc')
-            net.fc = gluon.nn.Dense(opt.classes)
+            net.fc = gluon.nn.Dense(opt.clasd10ses)
     # fp16-> 1
     net.cast(opt.dtype)# >?
-
-    if ensemble:
-        # net1 = net2 = net3 = net
-        net1 = copy.deepcopy(net)
-        net2 = copy.deepcopy(net)
-        net3 = copy.deepcopy(net)
-        saved_params_1 = os.path.join(opt.saved_dir, opt.saved_params)
-        saved_params_2 = os.path.join(opt.saved_dir, opt.saved_params_2)
-        saved_params_3 = os.path.join(opt.saved_dir, opt.saved_params_3)
-        net1.load_parameters(saved_params_1, ctx=ctx)
-        net2.load_parameters(saved_params_2, ctx=ctx)
-        net3.load_parameters(saved_params_3, ctx=ctx)
-        net = [net1, net2, net3]
-
-    else:
-        saved_params = os.path.join(opt.saved_dir, opt.saved_params)
-        net.load_parameters(saved_params, ctx=ctx)
+    saved_params = os.path.join(opt.saved_dir, opt.saved_params)
+    net.load_parameters(saved_params, ctx=ctx)
 
     return net
 
@@ -181,17 +138,7 @@ def data_iter(opt):
                                  last_batch='keep')  # shuffle = False
     return test_iter, train_ds
 
-
-def ensem_exp(model_list, inputs):
-    outputs = [model(inputs) for model in model_list]
-    output = outputs[0].exp()
-    for i in range(1, len(outputs)):
-        output += outputs[i].exp()
-
-    output /= len(outputs)
-    return output.log()
-
-def get_result(train_ds, test_iter, net, ctx, dtype, ensemble=False):
+def get_result(train_ds, test_iter, net, ctx, dtype):
     nums_test_iter = len(test_iter)
     times = 0
     preds = []
@@ -204,14 +151,7 @@ def get_result(train_ds, test_iter, net, ctx, dtype, ensemble=False):
         # fp16-> 2
         data = data.astype(dtype, copy=False)
 
-        if ensemble:
-            output_features = ensem_exp(net, data.as_in_context(ctx))
-
-        else:
-            output_features = net(data.as_in_context(ctx))
-
-
-
+        output_features = net(data.as_in_context(ctx))
         output = nd.softmax(output_features)
 
         # (128,18)->(128,1)
@@ -383,15 +323,11 @@ def main():
 
     ## ?
     ctx = d2l.try_gpu()  #
-    #
-    # num_gpus = opt.num_gpus
-    # ctx = [mx.gpu(i+opt.gpu_index) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
     # ctx = [mx.gpu(0), mx.gpu(1), mx.gpu(2), mx.gpu(3), mx.gpu(4), mx.gpu(5), mx.gpu(6), mx.gpu(7)]
     # ctx = [mx.gpu(6), mx.gpu(7)]
 
     ## load trained model
-    net = load_model(opt, pretrained, ctx, ensemble=opt.ensemble)
-
+    net = load_model(opt, pretrained, ctx)
 
     ## test_data-> iteration
     target_test_iter, train_ds = data_iter(opt)
@@ -401,8 +337,7 @@ def main():
     ids = sorted(os.listdir(os.path.join(test_path,'no_class')))
     # print(ids)
 
-    preds, pred_cla, inds, value = get_result(train_ds, target_test_iter, net, ctx = ctx, dtype = opt.dtype, ensemble=opt.ensemble)
-    # preds, pred_cla, inds, value = get_result(train_ds, target_test_iter, net, ctx = ctx, dtype = opt.dtype)
+    preds, pred_cla, inds, value = get_result(train_ds, target_test_iter, net, ctx = d2l.try_gpu(), dtype = opt.dtype)
 
     ## generate_csv, kaggle要求比较多
     csv_path = os.path.join(opt.data_dir, opt.dataset, 'sample_submission.csv')

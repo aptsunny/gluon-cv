@@ -108,7 +108,8 @@ def parse_args():
                         help='class.')
     parser.add_argument('--num_training_samples', type=int, default=0,
                         help='num_training_samples')
-
+    parser.add_argument('--gpu-index', type=int, default=0,
+                        help='gpu(i).')
     opt = parser.parse_args()
     return opt
 
@@ -185,7 +186,7 @@ def main():
     logger.info(opt)
 
     num_gpus = opt.num_gpus
-    context = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    context = [mx.gpu(i+opt.gpu_index) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
     num_workers = opt.num_workers
 
     batch_size = opt.batch_size
@@ -376,25 +377,26 @@ def main():
             return data, label
 
         transform_train = transforms.Compose([
-            transforms.Resize(480),
-            transforms.RandomFlipTopBottom(),
-            transforms.RandomHue(0.1),
-
             transforms.RandomResizedCrop(input_size),
             transforms.RandomFlipLeftRight(),
             transforms.RandomColorJitter(brightness=jitter_param, contrast=jitter_param,
-                                         saturation=jitter_param),
+                                        saturation=jitter_param),
             transforms.RandomLighting(lighting_param),
             transforms.ToTensor(),
             normalize
         ])
-
         transform_test = transforms.Compose([
-            transforms.Resize(resize, keep_ratio=True),# 256
+            transforms.Resize(resize, keep_ratio=True),
             transforms.CenterCrop(input_size),
             transforms.ToTensor(),
             normalize
         ])
+            #transforms.Resize(480),
+            #transforms.Resize(resize, keep_ratio=True),
+            #transforms.RandomResizedCrop(input_size),#fail
+            #transforms.RandomFlipTopBottom(),
+            #transforms.RandomHue(0.1),
+
 
         train_path = os.path.join(data_dir, 'train')
         val_path = os.path.join(data_dir, 'val')

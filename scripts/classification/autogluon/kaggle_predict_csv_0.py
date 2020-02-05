@@ -5,74 +5,6 @@ import d2lzh as d2l
 from mxnet import nd, image, gluon
 from mxnet.gluon import data as gdata
 from gluoncv.model_zoo import get_model
-import random
-import copy
-"""
---custom
-pretrain_standford_dog_180_resnext101
---dataset
-dog-breed-identification
---model
-resnext101_64x4d
---saved-params
-/home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/pretrain_dog_params_resnext101_64x4d_best_stanford_fp32/imagenet-resnext101_64x4d-179.params
---classes
-120
---dtype
-float32
---data-dir
-/home/ubuntu/workspace/dataset
-
-# 在不同机器上还要配置数据集位置
-python kaggle_predict_csv.py --custom pretrain_standford_dog_180_resnext101 --dataset dog-breed-identification --model resnext101_64x4d --saved-params /home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/pretrain_dog_params_resnext101_64x4d_best_stanford_fp32/imagenet-resnext101_64x4d-179.params --classes 120 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
-
---random --resize 224 --resize-ratio 0.875 
-
-# shopee
-python kaggle_predict_csv.py --custom final_shopee_params_resnet152_v1d_best_60  --model resnet152_v1d --dataset shopee-iet-machine-learning-competition --classes 18 --dtype float32 --data-dir /home/ubuntu/workspace/dataset --saved-params /home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/final_fit_model/final_shopee_params_resnet152_v1d_best/imagenet-resnet152_v1d-59.params --resize 224 --resize-ratio 0.875  
-
-
-# cats[1]
-/home/ubuntu/workspace/dataset/dogs-vs-cats-redux-kernels-edition
-python kaggle_predict_csv.py --custom final_cats_ep180_gpu_179 --dataset dogs-vs-cats-redux-kernels-edition --model resnet34_v1b --saved-params /home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/final_fit_model/final_cats_params_resnet34_v1b_best/imagenet-resnet34_v1b-179.params --classes 2 --dtype float32 --data-dir /home/ubuntu/workspace/dataset --resize 224 --resize-ratio 0.875 
-
-python kaggle_predict_csv.py --custom final_plant_fp32_ep120_baseline_gpu_2_119 --dataset plant-seedlings-classification --model resnet50_v1 --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/plant_params_resnet50_v1_best_2_gpu/imagenet-resnet50_v1-119.params --classes 12 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
-
-# plant[1]
-# plant 119 109 99
-python kaggle_predict_csv.py --custom final_plant_ep120_gpu_2_119 --dataset plant-seedlings-classification --model resnet50_v1 --saved-params /home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/final_fit_model/final_plant_params_resnet50_v1_best_2/imagenet-resnet50_v1-119.params --classes 12 --dtype float32 --data-dir /home/ubuntu/workspace/dataset --resize 224 --resize-ratio 0.875 
-
---num-gpus 2 --gpu-index 4 
-
-# [3]
-# update 八卡机器的命令
-python kaggle_predict_csv.py --custom final_standford_dog_300_resnext101 --dataset dog-breed-identification --model resnext101_64x4d --saved-params /home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/final_fit_model/final_dog_params_resnext101_64x4d_best_fp32/imagenet-resnext101_64x4d-299.params --classes 120 --dtype float32 --data-dir /home/ubuntu/workspace/dataset --resize 224 --resize-ratio 0.875 --random
-
-# [2]ok
-python kaggle_predict_csv_old.py --custom final_standford_dog_300_resnext101 --dataset dog-breed-identification --model resnext101_64x4d --saved-params /home/ubuntu/workspace/gluon-cv_args/scripts/classification/autogluon/final_fit_model/final_dog_params_resnext101_64x4d_best_fp32/imagenet-resnext101_64x4d-299.params --classes 120 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
-
-# [1]
-# dog ok 
-python kaggle_predict_csv.py --custom baseline_dog_180_resnext101 --dataset dog-breed-identification --model resnext101_64x4d --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/dog_params_resnext101_64x4d_best/imagenet-resnext101_64x4d-179.params --classes 120 --dtype float32 --data-dir /home/ubuntu/workspace/dataset --resize 224 --resize-ratio 0.875 --random 
-
-
-# fish 
-python kaggle_predict_csv.py --custom fish_params_resnet50_v1_best_2_119 --dataset fisheries_Monitoring --model resnet50_v1 --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/fish_params_resnet50_v1_best_2_gpu/imagenet-resnet50_v1-119.params --classes 8 --dtype float32 --data-dir /home/ubuntu/workspace/dataset --resize 320
-
-# shopee_params_resnet152_v1d_best
-python kaggle_predict_csv.py --custom shopee_params_resnet152_v1d_best_179 --dataset shopee-iet-machine-learning-competition --model resnet152_v1d --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/shopee_params_resnet152_v1d_best/imagenet-resnet152_v1d-179.params --classes 18 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
-
-# aerial_params_resnet34_v1b_best  179 169 159
-python kaggle_predict_csv.py --custom aerial_params_resnet34_v1b_best_159 --dataset aerial-cactus-identification --model resnet34_v1b --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/aerial_params_resnet34_v1b_best/imagenet-resnet34_v1b-159.params --classes 2 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
-
-# dogs-vs-cats-redux-kernels-edition 169 179 159
-python kaggle_predict_csv.py --custom cats_params_resnet34_v1b_best_159 --dataset dogs-vs-cats-redux-kernels-edition --model resnet34_v1b --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/cats_params_resnet34_v1b_best/imagenet-resnet34_v1b-159.params --classes 2 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
-
-# plant 119 109 99
-python kaggle_predict_csv.py --custom final_plant_fp32_ep120_baseline_gpu_2_119 --dataset plant-seedlings-classification --model resnet50_v1 --saved-params /home/ubuntu/workspace/baseline_gluoncv_model_saved/plant_params_resnet50_v1_best_2_gpu/imagenet-resnet50_v1-119.params --classes 12 --dtype float32 --data-dir /home/ubuntu/workspace/dataset
-
-
-"""
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Predict kaggle and predict to generate csv')
@@ -80,11 +12,6 @@ def parse_args():
                         help='name of the model to use')
     parser.add_argument('--saved-params', type=str, default='',
                         help='path to the saved model parameters')
-    parser.add_argument('--saved-params-2', type=str, default='',
-                        help='path to the saved model parameters')
-    parser.add_argument('--saved-params-3', type=str, default='',
-                        help='path to the saved model parameters')
-
     parser.add_argument('--data-dir', type=str, default= '/media/ramdisk/dataset/',
                         help='path to the input picture')
     parser.add_argument('--dataset', type=str, default = 'shopee-iet-machine-learning-competition',
@@ -100,24 +27,10 @@ def parse_args():
     parser.add_argument('--custom', type=str, default = 'predict',
                         help='path to the input picture')
 
-
-    parser.add_argument('--gpu-index', type=int, default=0,
-                        help='gpu(i).')
-    parser.add_argument('--num-gpus', type=int, default=0,
-                        help='number of gpus to use.')
-    parser.add_argument('--resize-ratio', type=float, default = 0.875,
-                        help='path to the input picture')
-    parser.add_argument('--resize', type=int, default = 224,
-                        help='path to the input picture')
-    parser.add_argument('--random_crop', action='store_true',
-                        help='enable using pretrained model from gluon.')
-    parser.add_argument('--ensemble', action='store_true',
-                        help='use image record iter for data input. default is false.')
-
     opt = parser.parse_args()
     return opt
 
-def load_model(opt, pretrained, ctx, ensemble=False):
+def load_model(opt, pretrained, ctx):
     # get_model
     net = get_model(opt.model, pretrained=pretrained, ctx=ctx)
 
@@ -129,23 +42,8 @@ def load_model(opt, pretrained, ctx, ensemble=False):
             net.fc = gluon.nn.Dense(opt.classes)
     # fp16-> 1
     net.cast(opt.dtype)# >?
-
-    if ensemble:
-        # net1 = net2 = net3 = net
-        net1 = copy.deepcopy(net)
-        net2 = copy.deepcopy(net)
-        net3 = copy.deepcopy(net)
-        saved_params_1 = os.path.join(opt.saved_dir, opt.saved_params)
-        saved_params_2 = os.path.join(opt.saved_dir, opt.saved_params_2)
-        saved_params_3 = os.path.join(opt.saved_dir, opt.saved_params_3)
-        net1.load_parameters(saved_params_1, ctx=ctx)
-        net2.load_parameters(saved_params_2, ctx=ctx)
-        net3.load_parameters(saved_params_3, ctx=ctx)
-        net = [net1, net2, net3]
-
-    else:
-        saved_params = os.path.join(opt.saved_dir, opt.saved_params)
-        net.load_parameters(saved_params, ctx=ctx)
+    saved_params = os.path.join(opt.saved_dir, opt.saved_params)
+    net.load_parameters(saved_params, ctx=ctx)
 
     return net
 
@@ -156,42 +54,24 @@ def data_iter(opt):
     train_ds = gdata.vision.ImageFolderDataset(train_path, flag=1)
     test_ds = gdata.vision.ImageFolderDataset(test_path, flag=1)
 
-    if opt.random_crop:
-        transform_test = gdata.vision.transforms.Compose([
-            gdata.vision.transforms.Resize( int(opt.resize / opt.resize_ratio)),  #
-            gdata.vision.transforms.RandomResizedCrop(opt.resize),
-            gdata.vision.transforms.ToTensor(),
-            gdata.vision.transforms.Normalize([0.485, 0.456, 0.406],
-                                              [0.229, 0.224, 0.225])])
-    else:
-        transform_test = gdata.vision.transforms.Compose([
-            # resize 256/320 再进行inference 或许会好一点？ /0.875
-            # gdata.vision.transforms.Resize(256),
-            # gdata.vision.transforms.Resize(320),# better 是因为训练resize 480 crop224，所以320 crop 224好一点
-            # 将图像中央的高和宽均为224的正方形区域裁剪出来
-            # gdata.vision.transforms.RandomResizedCrop(224),  # ensemble
-            gdata.vision.transforms.Resize(int(opt.resize / opt.resize_ratio)),  #
-            gdata.vision.transforms.CenterCrop(opt.resize),
-            # transforms.CenterCrop(input_size),
-            gdata.vision.transforms.ToTensor(),
-            gdata.vision.transforms.Normalize([0.485, 0.456, 0.406],
-                                              [0.229, 0.224, 0.225])])
+    transform_test = gdata.vision.transforms.Compose([
+        # resize 256/320 再进行inference 或许会好一点？ /0.875
+        # gdata.vision.transforms.Resize(256),
+        # gdata.vision.transforms.Resize(320),# better
+        gdata.vision.transforms.Resize(480),#
+        # 将图像中央的高和宽均为224的正方形区域裁剪出来
+        # gdata.vision.transforms.RandomResizedCrop(224),
+        gdata.vision.transforms.CenterCrop(224),
+
+        gdata.vision.transforms.ToTensor(),
+        gdata.vision.transforms.Normalize([0.485, 0.456, 0.406],
+                                          [0.229, 0.224, 0.225])])
     # mxnet/gluon/data/dataloader.py
     test_iter = gdata.DataLoader(test_ds.transform_first(transform_test), opt.batch_size, shuffle=False,
                                  last_batch='keep')  # shuffle = False
     return test_iter, train_ds
 
-
-def ensem_exp(model_list, inputs):
-    outputs = [model(inputs) for model in model_list]
-    output = outputs[0].exp()
-    for i in range(1, len(outputs)):
-        output += outputs[i].exp()
-
-    output /= len(outputs)
-    return output.log()
-
-def get_result(train_ds, test_iter, net, ctx, dtype, ensemble=False):
+def get_result(train_ds, test_iter, net, ctx, dtype):
     nums_test_iter = len(test_iter)
     times = 0
     preds = []
@@ -204,16 +84,8 @@ def get_result(train_ds, test_iter, net, ctx, dtype, ensemble=False):
         # fp16-> 2
         data = data.astype(dtype, copy=False)
 
-        if ensemble:
-            output_features = ensem_exp(net, data.as_in_context(ctx))
-
-        else:
-            output_features = net(data.as_in_context(ctx))
-
-
-
+        output_features = net(data.as_in_context(ctx))
         output = nd.softmax(output_features)
-
         # (128,18)->(128,1)
         ind = nd.argmax(output, axis=1).astype('int')
         # 每个batch_id 对应class
@@ -247,7 +119,7 @@ def recorrect_classs_name(csv_path, start, stop, fullname=False):
 
     df.to_csv(csv_path, index=False)
 
-def generate_csv(dataset, csv_path, ids, inds, preds, pred_cla, class_name, custom, resize, random_crop, resize_ratio):
+def generate_csv(dataset, csv_path, ids, inds, preds, pred_cla, class_name, custom):
     ## 配置 不同的csv格式
     if dataset == 'dogs-vs-cats-redux-kernels-edition':
         csv_config = {'fullname': False,# -> recorrect_classs_name
@@ -303,13 +175,7 @@ def generate_csv(dataset, csv_path, ids, inds, preds, pred_cla, class_name, cust
                       'special': 5  # 读取文件名第一个字符开始
                       }
     # 是否需要原来sample submission的信息（标题的类别顺序可能实际读取的不一致，或者是要多类的概率）
-    if random_crop:
-        # index = random.sample(range(1, 10), 1)
-        index = random.randint(1,10)
-    else:
-        index = 1
-    save_csv_name = custom + '_' + str(resize) + '_' + str(index) + '_' + str(resize_ratio)[2:] + '.csv'
-
+    save_csv_name = custom +'.csv'
     print(csv_path.replace('sample_submission.csv', save_csv_name))
     if csv_config['need_sample']:
         df = pd.read_csv(csv_path)
@@ -383,15 +249,11 @@ def main():
 
     ## ?
     ctx = d2l.try_gpu()  #
-    #
-    # num_gpus = opt.num_gpus
-    # ctx = [mx.gpu(i+opt.gpu_index) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
     # ctx = [mx.gpu(0), mx.gpu(1), mx.gpu(2), mx.gpu(3), mx.gpu(4), mx.gpu(5), mx.gpu(6), mx.gpu(7)]
     # ctx = [mx.gpu(6), mx.gpu(7)]
 
     ## load trained model
-    net = load_model(opt, pretrained, ctx, ensemble=opt.ensemble)
-
+    net = load_model(opt, pretrained, ctx)
 
     ## test_data-> iteration
     target_test_iter, train_ds = data_iter(opt)
@@ -399,14 +261,12 @@ def main():
     ## get_result & 准备输出的各项数据
     test_path = os.path.join(opt.data_dir, opt.dataset, 'test')
     ids = sorted(os.listdir(os.path.join(test_path,'no_class')))
-    # print(ids)
 
-    preds, pred_cla, inds, value = get_result(train_ds, target_test_iter, net, ctx = ctx, dtype = opt.dtype, ensemble=opt.ensemble)
-    # preds, pred_cla, inds, value = get_result(train_ds, target_test_iter, net, ctx = ctx, dtype = opt.dtype)
+    preds, pred_cla, inds, value = get_result(train_ds, target_test_iter, net, ctx = d2l.try_gpu(), dtype = opt.dtype)
 
     ## generate_csv, kaggle要求比较多
     csv_path = os.path.join(opt.data_dir, opt.dataset, 'sample_submission.csv')
-    generate_csv(opt.dataset, csv_path, ids, inds, preds, pred_cla, value, opt.custom, opt.resize, opt.random_crop, opt.resize_ratio)
+    generate_csv(opt.dataset, csv_path, ids, inds, preds, pred_cla, value, opt.custom)
 
 if __name__ == '__main__':
     main()
@@ -432,6 +292,5 @@ if __name__ == '__main__':
 #     f.close()
 # csv_path = os.path.join(opt.input_pic, 'submission.csv')
 # generate_csv(inds, csv_path)
-
 
 

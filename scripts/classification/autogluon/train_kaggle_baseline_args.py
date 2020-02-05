@@ -736,13 +736,13 @@ if __name__ == '__main__':
 
     myscheduler = ag.scheduler.FIFOScheduler(train_finetune,
                                              resource={'num_cpus': 8, 'num_gpus': 1},
-                                             num_trials=2,
+                                             num_trials=16,
                                              reward_attr='accuracy',
                                              time_attr='epoch')
     print(myscheduler)
     myscheduler.run()
     myscheduler.join_jobs()
-    myscheduler.get_training_curves(plot=True, use_legend=False, filename='plot/dog_5_1_plot.png')
+    myscheduler.get_training_curves(plot=True, use_legend=False, filename='plot/dog_5_16_plot.png')
     print('The Best Configuration and Accuracy are: {}, {}'.format(myscheduler.get_best_config(),
                                                                    myscheduler.get_best_reward()))
 
