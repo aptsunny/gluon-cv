@@ -48,7 +48,7 @@ class PSPNet(SegBaseModel):
                 self.auxlayer.collect_params().setattr('lr_mult', 10)
         print('self.crop_size', self.crop_size)
 
-    def hybrid_forward(self, F, x):
+    def hybrid_forward(self, FF, x):
         c3, c4 = self.base_forward(x)
         outputs = []
         x = self.head(c4)
