@@ -32,9 +32,11 @@ def blm_make_layer(block, inplanes, planes, blocks, stride=1, last_relu=True):
     layers = nn.HybridSequential(prefix='')
     if blocks == 1:
         layers.add(block(inplanes, planes, stride=stride, downsample=downsample))
+        # layers.add(block(inplanes, planes, stride=stride))
         # layers.append(block(inplanes, planes, stride=stride, downsample=downsample))
     else:
         layers.add(block(inplanes, planes, stride=stride, downsample=downsample))
+        # layers.add(block(inplanes, planes, stride=stride))
         # layers.append(block(inplanes, planes, stride=stride, downsample=downsample))
         for i in range(1, blocks):
             layers.add(block(planes, planes, last_relu=last_relu if i == blocks - 1 else True))
@@ -52,12 +54,9 @@ def blr_make_layer(block, inplanes, planes, blocks, stride=1):
         downsample.add(BatchNorm(in_channels=planes))
 
     layers = nn.HybridSequential(prefix='')
-    if blocks == 1:
-        layers.add(block(inplanes, planes, stride=stride, downsample=downsample))
-    else:
-        layers.add(block(inplanes, planes, stride=stride, downsample=downsample))
-        for i in range(1, blocks):
-            layers.add(block(planes, planes))
+    layers.add(block(inplanes, planes, stride=stride, downsample=downsample))
+    for i in range(1, blocks):
+        layers.add(block(planes, planes))
     return layers
 
 """
@@ -283,25 +282,35 @@ class BottleneckV1(HybridBlock):
 
     # add
     expansion = 4
-    def __init__(self, inplanes, planes, stride=1, downsample=False, last_relu=True, **kwargs):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, last_relu=True, **kwargs):
         super(BottleneckV1, self).__init__(**kwargs)
 
         self.body = nn.HybridSequential(prefix='')
 
         self.body.add(nn.Conv2D(planes//self.expansion, kernel_size=1, strides=stride, in_channels=inplanes))
         self.body.add(BatchNorm(in_channels=planes // self.expansion))# ->
-        # self.body.add(nn.Activation('relu'))
+        self.body.add(nn.Activation('relu'))
 
         self.body.add(_conv3x3(planes//self.expansion, 1, planes//self.expansion))
         self.body.add(BatchNorm(in_channels=planes // self.expansion))
-        # self.body.add(nn.Activation('relu'))
+        self.body.add(nn.Activation('relu'))
 
         self.body.add(nn.Conv2D(planes, kernel_size=1, strides=1, in_channels=planes//self.expansion))
         self.body.add(BatchNorm(in_channels=planes))
         self.body.add(nn.Activation('relu'))
 
-        if downsample:
-            self.downsample = downsample
+        # if downsample:
+        #     self.downsample = downsample
+
+        # self.downsample = nn.HybridSequential(prefix='')
+        # if stride != 1:
+        #     self.downsample.add(nn.AvgPool2D(3, strides=2, padding=1))
+        # if inplanes != planes:
+        #     self.downsample.add(nn.Conv2D(planes, kernel_size=1, strides=1, in_channels=inplanes))
+        #     # ?
+        #     self.downsample.add(BatchNorm(in_channels=planes))
+        self.downsample = downsample
+
         self.last_relu = last_relu
 
         #     self.downsample = nn.HybridSequential(prefix='')
@@ -320,19 +329,20 @@ class BottleneckV1(HybridBlock):
 
     def hybrid_forward(self, F, x):
         residual = x
-        x = self.body(x)
+
+        out = self.body(x)
 
         if self.downsample is not None:
             residual = self.downsample(x)
 
         if self.last_relu:
-            x = F.Activation(x + residual, act_type='relu')
+            out = F.Activation(out + residual, act_type='relu')
+            return out
         else:
-            x += residual
-        return x
+            return out + residual
 
 class BLModule(HybridBlock):
-    def __init__(self, block, int_channels, out_channels, blocks, alpha, beta, stride):
+    def __init__(self, block, int_channels, out_channels, blocks, alpha, beta, stride, hw):
         super(BLModule, self).__init__()
 
         self.relu = nn.Activation('relu')
@@ -343,57 +353,57 @@ class BLModule(HybridBlock):
         self.little = nn.HybridSequential(prefix='')
         self.little.add(blm_make_layer(block, int_channels, out_channels // alpha, max(1, blocks // beta - 1)))
         # self.little = self._make_layer(block, int_channels, out_channels // alpha, max(1, blocks // beta - 1))
-        self.little.add(nn.Conv2D(out_channels, kernel_size=1, in_channels=out_channels // alpha))
-        self.little.add(BatchNorm(in_channels=out_channels))
 
+        self.little_e = nn.HybridSequential(prefix='')
+        self.little_e.add(nn.Conv2D(out_channels, kernel_size=1, in_channels=out_channels // alpha))
+        self.little_e.add(BatchNorm(in_channels=out_channels))
+
+        # self._up_kwargs = {'height': height, 'width': width}
         # self.fusion = nn.HybridSequential(prefix='')
         # self.fusion.add(nn.Activation('relu'))
         # self.fusion.add(self._make_layer(block, out_channels, out_channels, 1, stride=stride))
         self.fusion = blm_make_layer(block, out_channels, out_channels, 1, stride=stride)
+        self.hw = hw
 
 
     def hybrid_forward(self, F, x):
         big = self.big(x)
         little = self.little(x)
+        little = self.little_e(little)
         # little = self.little_e(little)
         # nn.functional.py #2427
         # big = torch.nn.functional.interpolate(big, little.shape[2:])
-        big = F.contrib.BilinearResize2D(data=big, like=little.shape[2:])
-        # BilinearResize2D(data=big, like=little.shape[2:])
 
-        out = self.fusion(big + little)
+        # oshape = little.infer_shape(data=(1, 3, 56, 56))[2:]
+        # big = F.contrib.BilinearResize2D(data=big, like=oshape)
+
+        # cls_id = little.slice_axis(axis=-1, begin=2, end=4)
+        # print(cls_id)
+        # big = F.contrib.BilinearResize2D(data=big, like=cls_id)
+        # bboxes = F.slice_axis(result, axis=-1, begin=2, end=6)
+        # a = F.slice_axis(self.little, axis=0, begin=2, end=4)
+        # print(a)
+
+        big = F.contrib.BilinearResize2D(data=big, height=self.hw, width=self.hw)
+        # big = F.contrib.BilinearResize2D(data=big, like=a)
+        out = self.relu(big + little)
+        #out = self.relu(little)
+
+        # a = F.slice_axis(self.little, axis=0, begin=2, end=4)
+
+        # like=little.shape[2:]
+        # big = F.contrib.BilinearResize2D(data=big, **self._up_kwargs)
+        # big = F.contrib.BilinearResize2D(data=big, like=little.slice_axis(little, axis=0, begin=2, end=4))
+
+        # big = F.contrib.BilinearResize2D(data=big, like=little.shape[2:])
+        #
+
+        out = self.fusion(out)
         # out = self.relu(big + little)
         # out = self.fusion(out)
         return out
 
 class BLResNetV1(HybridBlock):
-    r"""ResNet V1 model from
-    `"Deep Residual Learning for Image Recognition"
-    <http://arxiv.org/abs/1512.03385>`_ paper.
-
-    Parameters
-    ----------
-    block : HybridBlock
-        Class for the residual block. Options are BasicBlockV1, BottleneckV1.
-    layers : list of int
-        Numbers of layers in each block
-    channels : list of int
-        Numbers of channels in each block. Length should be one larger than layers list.
-    classes : int, default 1000
-        Number of classification classes.
-    thumbnail : bool, default False
-        Enable thumbnail.
-    last_gamma : bool, default False
-        Whether to initialize the gamma of the last BatchNorm layer in each bottleneck to zero.
-    use_se : bool, default False
-        Whether to use Squeeze-and-Excitation module
-    norm_layer : object
-        Normalization layer used (default: :class:`mxnet.gluon.nn.BatchNorm`)
-        Can be :class:`mxnet.gluon.nn.BatchNorm` or :class:`mxnet.gluon.contrib.nn.SyncBatchNorm`.
-    norm_kwargs : dict
-        Additional `norm_layer` arguments, for example `num_devices=4`
-        for :class:`mxnet.gluon.contrib.nn.SyncBatchNorm`.
-    """
     def __init__(self, block, layers, channels, alpha=2, beta=4, classes=1000, thumbnail=False,
                  last_gamma=False, use_se=False, norm_layer=BatchNorm, norm_kwargs=None, **kwargs):
     # def __init__(self, block, layers, channels, alpha=2, beta=4, classes=1000, norm_layer=BatchNorm, **kwargs):
@@ -406,8 +416,11 @@ class BLResNetV1(HybridBlock):
                 self.features.add(norm_layer(in_channels=channels[0]))
                 self.features.add(nn.Activation('relu'))
 
+            self.relu = nn.Activation('relu')
+
             # bl part1 : input 112
             # 3*3 ,64, s2
+            #
             self.b_conv0 = nn.Conv2D(channels[0], 3, 2, 1, use_bias=False, in_channels=channels[0])
             self.bn_b0 = norm_layer(in_channels=channels[0])
             # 3*3 ,32; 3*3 ,32, s2; 1*1, 64
@@ -425,15 +438,16 @@ class BLResNetV1(HybridBlock):
             # bl part2 : 待修改
             self.layers = nn.HybridSequential(prefix='')
             # input 56
-            self.layers.add(BLModule(block, channels[0], channels[0] * block.expansion, layers[0], alpha, beta, stride=2))
+            self.layers.add(BLModule(block, channels[0], channels[0] * block.expansion, layers[0], alpha, beta, stride=2, hw = 56))
             # input 28
-            self.layers.add(BLModule(block, channels[0] * block.expansion, channels[1] * block.expansion, layers[1], alpha, beta, stride=2))
+            self.layers.add(BLModule(block, channels[0] * block.expansion, channels[1] * block.expansion, layers[1], alpha, beta, stride=2, hw = 28))
             # input 14
-            self.layers.add(BLModule(block, channels[1] * block.expansion, channels[2] * block.expansion, layers[2], alpha, beta, stride=1))
+            self.layers.add(BLModule(block, channels[1] * block.expansion, channels[2] * block.expansion, layers[2], alpha, beta, stride=1, hw =14))
 
             # _make_layer 实现未必正确
             # input 14
             self.layers.add(blr_make_layer(block, channels[2] * block.expansion, channels[3] * block.expansion, layers[3], stride=2))
+
 
             # 未更改
             # def _make_layer(self, block, inplanes, planes, blocks, stride=1):
@@ -462,7 +476,7 @@ class BLResNetV1(HybridBlock):
 
             # input 7*7
             self.layers.add(nn.GlobalAvgPool2D())
-
+            self.layers.add(nn.Flatten())
             self.fc = nn.Dense(classes, in_units=channels[-1] * block.expansion)
 
 
@@ -526,8 +540,15 @@ class BLResNetV1(HybridBlock):
         # x = self.layer4(x)
         # x = self.gappool(x)
 
-        x = x.view(x.size(0), -1) # ?
+        # x = x.view(x.size(0), -1) #
+        # x = nn.Flatten(data=x)
+        # flatten = Flatten(data=data, name='flat')  # now this is 2D
+        # .get_output_shape(flatten, data=(2, 3, 4, 5))
+        # {'flat_output': (2L, 60L)}
+
+        # squeeze
         x = self.fc(x)
+        # print(x.get_internals().list_outputs())
         # x = self.output(x)
 
         return x
@@ -741,4 +762,5 @@ def get_blmodel(name, **kwargs):
         raise ValueError(err_str)
     net = _models[name](**kwargs)
     return net
+
 
