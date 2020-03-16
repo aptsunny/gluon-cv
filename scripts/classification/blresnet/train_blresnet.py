@@ -8,48 +8,12 @@ from mxnet import autograd as ag
 from mxnet.gluon import nn
 from mxnet.gluon.data.vision import transforms
 
-import gluoncv as gcv
 # gcv.utils.check_version('0.6.0')
 from gluoncv.data import imagenet
 from gluoncv.model_zoo import get_model
 from gluoncv.utils import makedirs, LRSequential, LRScheduler
 
-
 from blmodels import *
-"""
-python train_imagenet.py \
-  --rec-train /media/ramdisk/rec/train.rec --rec-train-idx /media/ramdisk/rec/train.idx \
-  --rec-val /media/ramdisk/rec/val.rec --rec-val-idx /media/ramdisk/rec/val.idx \
-  --model resnet50_v1 --mode hybrid \
-  --lr 0.4 --lr-mode cosine --num-epochs 120 --batch-size 128 --num-gpus 8 -j 60 \
-  --warmup-epochs 5 --dtype float16 \
-  --use-rec --last-gamma --no-wd --label-smoothing \
-  --save-dir params_resnet50_v1_best \
-  --logging-file resnet50_v1_best.log
-  
-  
-  --rec-train /media/ramdisk/rec/train.rec --rec-train-idx /media/ramdisk/rec/train.idx 
-  --rec-val /media/ramdisk/rec/val.rec --rec-val-idx /media/ramdisk/rec/val.idx 
-  --model blresnet50_v1 --mode hybrid 
-  --lr 0.4 --lr-mode cosine --num-epochs 120 --batch-size 128 --num-gpus 8 -j 60 
-  --warmup-epochs 5 --dtype float32 
-  --use-rec --last-gamma --no-wd --label-smoothing 
-  --save-dir params_resnet50_v1_best 
-  --logging-file resnet50_v1_best.log
-  
-  
-  
-  --rec-train /home/ubuntu/imagenets/val.rec --rec-train-idx /home/ubuntu/imagenets/val.idx 
-  --rec-val /home/ubuntu/imagenets/val.rec --rec-val-idx /home/ubuntu/imagenets/val.idx 
-  --model blresnet50_v1 --mode hybrid 
-  --lr 0.4 --lr-mode cosine --num-epochs 120 --batch-size 128 --num-gpus 8 -j 60 
-  --warmup-epochs 5 --dtype float32 
-  --use-rec --last-gamma --no-wd --label-smoothing 
-  --save-dir params_resnet50_v1_best 
-  --logging-file resnet50_v1_best.log
-  
-"""
-
 
 # CLI
 def parse_args():
@@ -221,6 +185,8 @@ def main():
         distillation = True
     else:
         distillation = False
+
+
 
     # Two functions for reading data from record file or raw images
     def get_data_rec(rec_train, rec_train_idx, rec_val, rec_val_idx, batch_size, num_workers):

@@ -16,6 +16,7 @@ from gluoncv.data.transforms.pose import transform_preds, get_final_preds, flip_
 from gluoncv.data.transforms.presets.simple_pose import SimplePoseDefaultTrainTransform, SimplePoseDefaultValTransform
 from gluoncv.utils.metrics.coco_keypoints import COCOKeyPointsMetric
 
+
 # CLI
 parser = argparse.ArgumentParser(description='Validate a model for pose estimation.')
 parser.add_argument('--data-dir', type=str, default='~/.mxnet/datasets/coco',

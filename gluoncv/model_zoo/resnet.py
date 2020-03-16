@@ -400,8 +400,8 @@ class ResNetV1(HybridBlock):
                                                    stride, i+1, in_channels=channels[i],
                                                    last_gamma=last_gamma, use_se=use_se,
                                                    norm_layer=norm_layer, norm_kwargs=norm_kwargs))
-            self.features.add(nn.GlobalAvgPool2D())
 
+            self.features.add(nn.GlobalAvgPool2D())
             self.output = nn.Dense(classes, in_units=channels[-1])
 
     def _make_layer(self, block, layers, channels, stride, stage_index, in_channels=0,

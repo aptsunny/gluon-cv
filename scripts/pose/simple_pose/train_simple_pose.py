@@ -103,6 +103,7 @@ kwargs = {'ctx': context, 'num_joints': num_joints,
           'pretrained_ctx': context}
 
 net = get_model(model_name, **kwargs)
+
 net.cast(opt.dtype)
 
 def get_data_loader(data_dir, batch_size, num_workers, input_size):
