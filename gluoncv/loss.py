@@ -489,6 +489,7 @@ class DistillationSoftmaxCrossEntropyLoss(gluon.HybridBlock):
         elif self._hard_weight == 1:
             return self.hard_loss(output, label)
         else:
+            print(output.shape, label.shape, soft_target.shape)
             soft_loss = (self._temperature ** 2) * self.soft_loss(output / self._temperature,
                                                                   soft_target)
             hard_loss = self.hard_loss(output, label)
